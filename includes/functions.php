@@ -5456,11 +5456,18 @@
 						]
 					];*/
 
+					// row_id must be globally unique across voucher types, because Books
+					// dedups on externalId. purchase_id, receipt_id, payment_id, etc. are
+					// separate sequences, so a plain numeric row_id collides across types
+					// (purchase #5 vs receipt #5) and the later one is rejected as a
+					// duplicate (HTTP 409). Namespacing by type prevents that.
+					$unique_row_id = $voucher . '-' . $voucher_id;
+
 					$data = [
 						"source"=>"kgr_php_gold", 
 						"record"=> 
 						[
-							"row_id"=> $voucher_id,
+							"row_id"=> $unique_row_id,
 							"company_id"=>$company_id, 
 							"type"=> $voucher,
 							"date"=> $date, 
@@ -5485,6 +5492,9 @@
 					curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 					curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
 					curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+					// Timeouts so a slow or unreachable Books API can never hang the save.
+					curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+					curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
 				// Set the necessary HTTP headers for JSON and Authorization
 					curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -5497,13 +5507,16 @@
 					$response = curl_exec($ch);
 					$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
+					// Never echo here: this runs inside the voucher-save AJAX handlers, so
+					// any echo corrupts the JSON the browser parses. Log instead so failures
+					// are visible and debuggable.
+					$log_line = date("Y-m-d H:i:s") . " | " . $voucher . " | row_id=" . $unique_row_id . " | ";
 					if (curl_errno($ch)) {
-						$errorMsg = curl_error($ch);
-						echo "cURL Error: " . $errorMsg;
+						$log_line .= "cURL ERROR: " . curl_error($ch);
 					} else {
-						echo "HTTP Status Code: " . $httpCode . "\n";
-						echo "Response: " . $response;
+						$log_line .= "HTTP " . $httpCode . " | " . $response;
 					}
+					error_log($log_line . PHP_EOL, 3, $_SERVER["DOCUMENT_ROOT"] . "/includes/nexusora_integration.log");
 
 				// 6. Close the session
 					curl_close($ch);
