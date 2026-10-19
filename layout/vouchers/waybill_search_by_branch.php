@@ -1,0 +1,3 @@
+<?php 
+include($_SERVER['DOCUMENT_ROOT'] .'/includes/functions.php');
+search_waybill_by_branch();
